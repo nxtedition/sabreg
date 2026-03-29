@@ -1,0 +1,10 @@
+{
+  "name": "sabreg",
+  "version": "0.0.1",
+  "description": "Multi-threaded SharedArrayBuffer registry",
+  "author": "nxtedition",
+  "license": "ISC",
+  "scripts": {
+    "test": "node test.js"
+  }
+}
