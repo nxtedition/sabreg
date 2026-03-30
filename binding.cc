@@ -29,10 +29,17 @@ union Storage {
     ~Storage() {}
 } storage;
 
+struct Toggle {
+    explicit Toggle(bool *var) : var(var) { *var = true; }
+    ~Toggle() { *var = false; }
+    bool* var;
+};
+
 // |map| is a pointer to storage.map because BackingStore destructors should
 // not run on program exit, by that time V8 is dead
 BackingStoreMap* map;
 std::mutex mtx;
+thread_local bool recurse;
 
 void Throw(v8::Isolate* isolate, const char* message)
 {
@@ -46,6 +53,8 @@ void GetOrCreate(const v8::FunctionCallbackInfo<v8::Value>& args)
     auto isolate = args.GetIsolate();
     v8::String::Utf8Value key(isolate, args[0]);
     if (!*key) return; // exception pending
+    if (recurse) return Throw(isolate, "recursive call");
+    Toggle toggle(&recurse);
     std::lock_guard<std::mutex> lock(mtx);
     auto it = map->find(*key);
     v8::Local<v8::SharedArrayBuffer> result;
@@ -70,6 +79,8 @@ void Remove(const v8::FunctionCallbackInfo<v8::Value>& args)
     auto isolate = args.GetIsolate();
     v8::String::Utf8Value key(isolate, args[0]);
     if (!*key) return; // exception pending
+    if (recurse) return Throw(isolate, "recursive call");
+    Toggle toggle(&recurse);
     std::lock_guard<std::mutex> lock(mtx);
     auto it = map->find(*key);
     auto found = (it != map->end());

@@ -34,7 +34,19 @@ assert.throws(() => {
 
 {
     const expected = new SharedArrayBuffer(4)
-    const actual = sabreg.getOrCreate("foo", () => expected)
+    const actual = sabreg.getOrCreate("foo", () => {
+        // calling getOrCreate again from the callback should raise an exception
+        assert.throws(() => {
+            sabreg.getOrCreate("foo", () => { throw Error("unreachable") })
+        }, /recursive call/)
+
+        // ditto remove
+        assert.throws(() => {
+            sabreg.remove("foo")
+        }, /recursive call/)
+
+        return expected
+    })
     assert.equal(expected, actual)
 
     // calling it again returns a new SharedArrayBuffer but with the same backing store
