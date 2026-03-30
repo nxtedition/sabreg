@@ -24,6 +24,9 @@ const expected = new SharedArrayBuffer(4)
 const actual = sabreg.getOrCreate("bar", () => expected)
 assert.equal(expected, actual)
 
+// send to parent to keep it alive
+worker_threads.parentPort.postMessage(actual)
+
 // calling it again returns a new SharedArrayBuffer but with the same backing store
 const other = sabreg.getOrCreate("bar", () => { throw Error("unreachable") })
 assert.notEqual(other, expected)

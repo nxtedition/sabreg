@@ -21,7 +21,7 @@
 
 namespace {
 
-using BackingStoreMap = std::map<std::string, std::shared_ptr<v8::BackingStore>>;
+using BackingStoreMap = std::map<std::string, std::weak_ptr<v8::BackingStore>>;
 
 union Storage {
     BackingStoreMap map;
@@ -57,21 +57,25 @@ void GetOrCreate(const v8::FunctionCallbackInfo<v8::Value>& args)
     Toggle toggle(&recurse);
     std::lock_guard<std::mutex> lock(mtx);
     auto it = map->find(*key);
-    v8::Local<v8::SharedArrayBuffer> result;
-    if (it == map->end()) {
-        if (!args[1]->IsFunction()) return Throw(isolate, "not a function");
-        auto undefined = v8::Undefined(isolate);
-        auto context = isolate->GetCurrentContext();
-        auto fun = args[1].As<v8::Function>();
-        v8::Local<v8::Value> rval;
-        if (!fun->Call(context, undefined, 0, nullptr).ToLocal(&rval)) return; // exception pending
-        if (!rval->IsSharedArrayBuffer()) return Throw(isolate, "not a SharedArrayBuffer");
-        result = rval.As<v8::SharedArrayBuffer>();
-        map->insert(std::make_pair(std::string(*key), result->GetBackingStore()));
-    } else {
-        result = v8::SharedArrayBuffer::New(isolate, it->second);
+    if (it != map->end()) {
+        if (auto strong_bs = it->second.lock()) {
+            auto sab = v8::SharedArrayBuffer::New(isolate, strong_bs);
+            args.GetReturnValue().Set(sab);
+            return;
+        }
     }
-    args.GetReturnValue().Set(result);
+    if (!args[1]->IsFunction()) return Throw(isolate, "not a function");
+    auto undefined = v8::Undefined(isolate);
+    auto context = isolate->GetCurrentContext();
+    auto fun = args[1].As<v8::Function>();
+    v8::Local<v8::Value> rval;
+    if (!fun->Call(context, undefined, 0, nullptr).ToLocal(&rval)) return; // exception pending
+    if (!rval->IsSharedArrayBuffer()) return Throw(isolate, "not a SharedArrayBuffer");
+    auto sab = rval.As<v8::SharedArrayBuffer>();
+    std::shared_ptr<v8::BackingStore> strong_bs(sab->GetBackingStore());
+    std::weak_ptr<v8::BackingStore> weak_bs(std::move(strong_bs));
+    map->insert(std::make_pair(std::string(*key), weak_bs));
+    args.GetReturnValue().Set(sab);
 }
 
 void Remove(const v8::FunctionCallbackInfo<v8::Value>& args)

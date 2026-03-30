@@ -64,6 +64,9 @@ assert.throws(() => {
     assert.throws(() => {
         sabreg.getOrCreate("foo", () => { throw Error("kaboom") })
     }, /kaboom/)
+
+    // this assert exists to prevent SAB from getting gc'd
+    assert(actual)
 }
 
 {
@@ -71,6 +74,9 @@ assert.throws(() => {
     const worker = new worker_threads.Worker("./test_worker_thread.js")
     let called = 0
     process.on("exit", () => assert.equal(called, 1))
+    worker.on("message", (sab) => {
+        globalThis.keepAlive = sab // prevent SAB from getting gc'd
+    })
     worker.on("exit", (code) => {
         called++
         assert.equal(0, code)
