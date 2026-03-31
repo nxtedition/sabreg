@@ -23,21 +23,13 @@ namespace {
 
 using BackingStoreMap = std::map<std::string, std::weak_ptr<v8::BackingStore>>;
 
-union Storage {
-    BackingStoreMap map;
-    Storage() {}
-    ~Storage() {}
-} storage;
-
 struct Toggle {
     explicit Toggle(bool *var) : var(var) { *var = true; }
     ~Toggle() { *var = false; }
     bool* var;
 };
 
-// |map| is a pointer to storage.map because BackingStore destructors should
-// not run on program exit, by that time V8 is dead
-BackingStoreMap* map;
+BackingStoreMap map;
 std::mutex mtx;
 thread_local bool recurse;
 
@@ -56,8 +48,8 @@ void GetOrCreate(const v8::FunctionCallbackInfo<v8::Value>& args)
     if (recurse) return Throw(isolate, "recursive call");
     Toggle toggle(&recurse);
     std::lock_guard<std::mutex> lock(mtx);
-    auto it = map->find(*key);
-    if (it != map->end()) {
+    auto it = map.find(*key);
+    if (it != map.end()) {
         if (auto strong_bs = it->second.lock()) {
             auto sab = v8::SharedArrayBuffer::New(isolate, strong_bs);
             args.GetReturnValue().Set(sab);
@@ -74,7 +66,7 @@ void GetOrCreate(const v8::FunctionCallbackInfo<v8::Value>& args)
     auto sab = rval.As<v8::SharedArrayBuffer>();
     std::shared_ptr<v8::BackingStore> strong_bs(sab->GetBackingStore());
     std::weak_ptr<v8::BackingStore> weak_bs(std::move(strong_bs));
-    map->insert(std::make_pair(std::string(*key), weak_bs));
+    map.insert(std::make_pair(std::string(*key), weak_bs));
     args.GetReturnValue().Set(sab);
 }
 
@@ -86,9 +78,9 @@ void Remove(const v8::FunctionCallbackInfo<v8::Value>& args)
     if (recurse) return Throw(isolate, "recursive call");
     Toggle toggle(&recurse);
     std::lock_guard<std::mutex> lock(mtx);
-    auto it = map->find(*key);
-    auto found = (it != map->end());
-    if (found) map->erase(it);
+    auto it = map.find(*key);
+    auto found = (it != map.end());
+    if (found) map.erase(it);
     args.GetReturnValue().Set(found);
 }
 
@@ -108,10 +100,6 @@ void Initialize(v8::Local<v8::Object> exports,
         auto key = v8::String::NewFromUtf8Literal(isolate, "remove");
         auto value = v8::Function::New(context, Remove, undefined, /*length*/1).ToLocalChecked();
         exports->Set(context, key, value).Check();
-    }
-    {
-        std::lock_guard<std::mutex> lock(mtx);
-        if (!map) map = new(&storage.map) BackingStoreMap();
     }
 }
 
